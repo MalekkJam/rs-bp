@@ -1,6 +1,6 @@
-# WhatSpace
+# whatspace
 
-WhatSpace is a minimal Delay-Tolerant Networking (DTN) middleware implemented in Rust.  
+Whatspace is a minimal Delay-Tolerant Networking (DTN) middleware implemented in Rust.  
 It simulates distributed DTN nodes based on the Store–Carry–Forward model.
 
 The project focuses on modular system design, persistent storage, asynchronous networking, and distributed coordination between independent nodes.
@@ -24,26 +24,19 @@ Multiple nodes can be executed simultaneously in separate terminals or container
 
 ## Architecture
 
-### Single Node Architecture
+### Layered Node Architecture
 
-<img width="527" height="604" alt="Blank diagram (1)" src="https://github.com/user-attachments/assets/8ed35558-f036-4156-b2c5-db4fc6fe4f16" />
+<img width="2720" height="2320" alt="whatspace_dtn_architecture" src="https://github.com/user-attachments/assets/b4f1c5f8-c2e0-43de-a677-df6c4f8fd3be" />
 
 Each node is structured into the following modules:
 
-- **CLI** : Handles user interaction and command execution.
+- **Application Layer** : Handles user commands and display only. Has no knowledge of routing or network internals.
 
-- **Routing Engine** : Implements the Store–Carry–Forward logic and epidemic routing strategy.
+- **Bundle Layer** : the core DTN logic. Manages bundle lifecycle (creation, TTL, ACK), persistent storage, deduplication, and routing decisions. Never touches TCP directly.
 
-- **Bundle Manager** : Manages bundle lifecycle and coordination between routing and storage.
+- **Convergence Layer** : the transport adapter. Serializes bundles for sending and deserializes incoming bytes back into bundles. Decouples the bundle layer from any specific transport. Adding a new transport (Bluetooth, UDP) only requires a new CLA implementation.
 
-- **Network Layer** : Handles TCP communication with peer nodes using asynchronous I/O.
-
-- **Storage Layer** : Provides persistent local storage for bundles.
-
-The routing engine interacts with:
-- The network layer to send bundles.
-- The storage layer to persist and retrieve bundles.
-- The CLI to process user-initiated actions.
+- **Transport Layer** : raw TCP via Tokio.
 
 ---
 
@@ -75,7 +68,7 @@ Each bundle contains:
 - TTL (Time To Live)
 - Payload
 
-Bundles are serialized using Serde and stored locally.
+Bundles are serialized using Serde + Protobuf and stored locally per node.
 
 ---
 
@@ -90,29 +83,21 @@ Each node maintains independent persistent storage.
 
 ---
 
-### Network Communication
-
-- TCP-based communication
-- Static peer configuration at startup
-- Asynchronous message handling using Tokio
-- Periodic connection attempts
-- Failure handling and retry logic
-
-TCP is chosen to simplify reliability at the transport layer.
-
----
-
 ### Routing Logic
 
 - Store–Carry–Forward mechanism
 - Epidemic routing (simplified)
 - Peer inventory synchronization
 - Duplicate forwarding prevention
-- Delivery confirmation handling
-
-Bundles are forwarded opportunistically when peers become available.
+- Delivery confirmation handling (ACK)
 
 ---
+
+### Convergence Layer
+
+- CLA trait abstracts all transport concerns
+- Current implementation: TCP via Tokio
+- New transports can be added without touching bundle or routing logic
 
 ### Command Line Interface
 
@@ -130,37 +115,28 @@ Available commands:
 The project follows a modular architecture where each feature is isolated in its own module.
 
 ```
-Whatspace/
+WhatSpace/
 ├── src/
 │   ├── main.rs
-│   ├── network/
+│   ├── cli/
 │   │   ├── mod.rs
-│   │   ├── bundle.rs
-│   │   ├── server.rs
-│   │   ├── client.rs
-│   │   ├── bundle.proto
-│   │   └── protobuf.rs
-|   |
-│   ├── storage/
+│   │   ├── cli.rs
+│   │   └── handlers.rs
+│   ├── bundle/
 │   │   ├── mod.rs
-│   │   └── storage.rs
+│   │   ├── model.rs          ← Bundle struct, fields, serialization
+│   │   ├── bundle_manager.rs ← lifecycle: create, TTL, ACK
+│   │   └── storage.rs        ← persist, dedup, expiry
 │   ├── routing/
 │   │   ├── mod.rs
-│   │   ├── ack.rs
-│   │   ├── bundleManager.rs
-│   │   ├── epidemic.rs
-│   │   ├── model.rs
-│   │   ├── scf.rs
-│   │   └── engine.rs
-|   |
-│   └── cli/
-│       ├── mod.rs
-│       ├── handlers.rs
-│       └── cli.rs
+│   │   ├── engine.rs         ← orchestrates routing decisions
+│   │   ├── epidemic.rs       ← epidemic routing strategy
+│   │   └── scf.rs            ← store-carry-forward strategy
+│   └── cla/
+│       ├── mod.rs            ← CLA trait definition
+│       └── tcp.rs            ← TCP implementation of the CLA
 ├── scripts/
 │   └── test_ack_flow.sh
-├── docs/
-│   └── architecture.png
 ├── tests/
 ├── Cargo.toml
 └── README.md
@@ -175,100 +151,11 @@ Whatspace/
 cargo build
 ```
 
-### 2. Run the registry server
-
-Start the registry server in a dedicated terminal:
-
-```bash
-cargo run -- serve
-```
-
-You can also use:
-
-```bash
-cargo run -- server
-```
-
-The registry server listens on `127.0.0.1:8080`.
-
-### 3. Run the application in interactive mode
-
-Open another terminal and start the application:
+### 2. Run 
 
 ```bash
 cargo run
 ```
-
-This opens interactive mode with the predefined demo nodes:
-
-- `alice` on `127.0.0.1:9001`
-- `bob` on `127.0.0.1:9002`
-- `carol` on `127.0.0.1:9003`
-
-### 4. Run a node
-
-Inside interactive mode, start a node and register it with the registry server:
-
-```text
-start alice --server 127.0.0.1:8080
-```
-
-You can start additional demo nodes the same way:
-
-```text
-start bob --server 127.0.0.1:8080
-start carol --server 127.0.0.1:8080
-```
-
-Each started node opens its peer listener on its configured local port.
-
-### 5. Available interactive commands
-
-```text
-all
-start <name> --server 127.0.0.1:8080
-stop <name>
-status <name>
-peers <name> list-peers
-peers <name> get-connected-peers <uuid> [<uuid> ...]
-peers <name> add <peer-name>
-peers <name> remove <peer-name>
-send --from <name> --to <name> --message "<message>" --ttl <seconds>
-help
-exit
-```
-
-### 6. Send a bundle
-
-Example:
-
-```text
-send --from alice --to carol --message "hello from alice" --ttl 60
-```
----
-
-### 7. Test Script
-
-Start the registry server in a dedicated terminal:
-
-```bash
-cargo run -- serve
-```
-Run the script:
-```bash
-./scripts/test_ack_flow.sh
-```
-
-
-
-## Future Work
-
-- Temporal contact plan
-- Bundle encryption
-- Priority-based forwarding
-- Containerized deployment
-- Monitoring interface
-- Performance optimization
 
 ---
 
