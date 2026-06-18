@@ -4,15 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-uuid = { version = "1.22.0", features = ["v4", "v5" ,"serde"] }   # to gnenerate the unique id
-chrono = { version = "0.4", features = ["serde"] } # timestamp gestion
-serde = { version = "1", features = ["derive"] } #  json serialisation
-serde_json = "1"                               # to read/ and write in the json
-pathfinding = "4.15.0"
-tokio = { version = "1", features = ["full"] }
-protobuf = "3"
-protobuf-json-mapping = "3.7.2"
-clap = { version = "4", features = ["derive"] }
+uuid = { version = "1.22.0", features = ["v4", "serde"] }   # to gnenerate the unique id
+chrono = { version = "0.4", features = ["serde"] } # timestamp gestio
 
 [build-dependencies]
 protobuf-codegen = "3"
