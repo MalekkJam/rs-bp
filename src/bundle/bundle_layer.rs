@@ -14,4 +14,8 @@ impl BundleLayer {
     pub fn store_bundle(&self, bundle : Bundle) {
         self.storage.store_bundle(bundle);
     }
+
+    pub fn delete_bundle(&self, bundle_id : Uuid) {
+        self.storage.delete_bundle(bundle_id);
+    }
 }
