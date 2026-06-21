@@ -1,55 +1,60 @@
 use std::fs::File;
+use std::io::Write;
 
 const MAXIMUM_CAPACITY: usize = 1_000;
-const FILE_PATH : &str = "storage/bundles.json";
+const FILE_PATH: &str = "storage/bundles.json";
 
 pub struct Storage {
-    capacity : usize, // max number of bundles to store
+    capacity: usize, // max number of bundles to store
+    bundles: Vec<StoredBundle>,
 }
 
 impl Storage {
     pub fn new() -> Self {
-        Storage { capacity: MAXIMUM_CAPACITY }
+        Storage {
+            capacity: MAXIMUM_CAPACITY,
+        }
     }
 
     fn get_capacity(&self) -> usize {
         self.capacity
     }
 
-    fn store_bundle(&self, bundle : Bundle) -> Result {
+    fn store_bundle(&mut self, bundle: Bundle) -> Result {
         if (self.capacity == 0) {
             return Err("Storage is full");
-        }
-        else {
-            save_bundle_to_storage(bundle);
+        } else {
+            let stored = StoredBundle {
+                bundle,
+                status: BundleStatus::Pending,
+            };
+            save_bundle_to_storage(stored);
             self.capacity -= 1;
             return Ok(());
         }
     }
 
-    fn delete_bundle(&self, bundle_id : Uuid) -> Result {
+    fn delete_bundle(&self, bundle_id: Uuid) -> Result {
         if (self.capacity == MAXIMUM_CAPACITY) {
             return Err("Storage is empty");
-        }
-        else {
+        } else {
             delete_bundle_from_storage(bundle_id);
             self.capacity += 1;
             return Ok(());
         }
     }
 
-    fn save_bundle_to_storage(bundle : Bundle) {
-        let data = serde_json::to_string(&bundle).unwrap();
-        let file = File::create(FILE_PATH).unwrap();
+    fn save_bundle_to_storage(stored: StoredBundle) {
+        let data = serde_json::to_string(&stored).unwrap();
+        let mut file = File::create(FILE_PATH).unwrap();
         file.write_all(data.as_bytes()).unwrap();
     }
 
-    fn delete_bundle_from_storage(bundle_id : Uuid) {
+    fn delete_bundle_from_storage(bundle_id: Uuid) {
         let mut bundles = load_bundles_from_storage();
         bundles.retain(|b| b.id != bundle_id);
         save_bundles_to_storage(bundles);
     }
-
 }
 
 #[cfg(test)]
@@ -135,4 +140,3 @@ mod tests {
         }
     }
 }
-

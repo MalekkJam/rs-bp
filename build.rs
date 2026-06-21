@@ -1,8 +1,8 @@
 fn main() {
     protobuf_codegen::Codegen::new()
         .pure()
-        .include("src/network")
-        .input("src/network/bundle.proto")
+        .include("src/cla")
+        .input("src/cla/bundle.proto")
         .cargo_out_dir("proto")
         .run_from_script();
 

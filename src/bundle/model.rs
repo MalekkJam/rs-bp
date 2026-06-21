@@ -29,10 +29,10 @@ pub enum BundlePayload {
 
 pub struct StoredBundle {
     pub bundle: Bundle,
-    pub status: MsgStatus,
+    pub status: BundleStatus,
 }
 
-pub enum MsgStatus {
+pub enum BundleStatus {
     // the bundle is created but not yet sent
     Pending,
 
@@ -47,4 +47,3 @@ pub enum MsgStatus {
     // the bundle has expired //TTL exceeded
     Expired,
 }
-

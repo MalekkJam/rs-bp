@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::bundle::model::BundleLayer;
+use crate::bundle::BundleLayer;
 use crate::cla::ConvergenceLayer;
 
 pub struct Node {
