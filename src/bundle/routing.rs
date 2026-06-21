@@ -47,7 +47,7 @@ impl RoutingEngine {
             BundleKind::Ack     => self.handle_ack(bundle),
         }
     }
-    
+
     fn handle_message(&mut self, bundle: &Bundle) -> EpidemicDecision {
         // Case 2: already seen — ignore to prevent re-flooding
         if self.seen_ids.contains(&bundle.id) {

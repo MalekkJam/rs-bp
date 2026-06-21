@@ -1,7 +1,7 @@
 # whatspace
 
-Whatspace is a minimal Delay-Tolerant Networking (DTN) middleware implemented in Rust.  
-It simulates distributed DTN nodes based on the Store–Carry–Forward model.
+Whatspace is a minimal Delay-Tolerant Networking (DTN) middleware implemented in Rust.
+It simulates distributed DTN nodes based on the Store-Carry-Forward model.
 
 The project focuses on modular system design, persistent storage, asynchronous networking, and distributed coordination between independent nodes.
 
@@ -9,12 +9,14 @@ The project focuses on modular system design, persistent storage, asynchronous n
 
 ## Overview
 
+The main goal of this project is to build a Rust implementation inspired by [RFC 9171](https://datatracker.ietf.org/doc/rfc9171/).
+
 Each instance of the program represents an independent DTN node capable of:
 
 - Generating and receiving bundles
 - Persisting bundles locally
 - Forwarding bundles opportunistically
-- Handling TTL expiration
+- Handling bundle expiration
 - Recovering from process restarts
 - Operating under intermittent connectivity
 
@@ -30,19 +32,16 @@ Multiple nodes can be executed simultaneously in separate terminals or container
 
 Each node is structured into the following modules:
 
-- **Application Layer** : Handles user commands and display only. Has no knowledge of routing or network internals.
+- **Application Layer**: handles user commands and display only. It has no knowledge of routing or network internals.
+- **Bundle Layer**: the core DTN logic. It manages bundle lifecycle, expiration, ACK handling, persistent storage, deduplication, and routing decisions. It never touches transport directly.
+- **Convergence Layer**: the transport adapter. It serializes bundles for sending and deserializes incoming bytes back into bundles. It decouples the bundle layer from any specific transport.
+- **Transport Layer**: raw network I/O, currently intended as UDP via Tokio.
 
-- **Bundle Layer** : the core DTN logic. Manages bundle lifecycle (creation, TTL, ACK), persistent storage, deduplication, and routing decisions. Never touches TCP directly.
-
-- **Convergence Layer** : the transport adapter. Serializes bundles for sending and deserializes incoming bytes back into bundles. Decouples the bundle layer from any specific transport. Adding a new transport (Bluetooth, UDP) only requires a new CLA implementation.
-
-- **Transport Layer** : raw TCP via Tokio.
+Runtime ownership follows the same layering: a `Node` owns its `BundleLayer` and convergence layer, while a convergence-layer implementation owns or uses the transport below it.
 
 ---
 
 ### Distributed Architecture
-
-<img width="810" height="300" alt="Blank diagram (2)" src="https://github.com/user-attachments/assets/a27de688-217d-46df-b56f-47515d6e6101" />
 
 Each node maintains:
 
@@ -50,7 +49,7 @@ Each node maintains:
 - Its own local storage
 - Its own routing logic
 
-Nodes communicate exclusively via TCP connections.  
+Nodes communicate through convergence-layer connections.
 There is no shared database between nodes, preserving the distributed nature of the system.
 
 ---
@@ -59,16 +58,23 @@ There is no shared database between nodes, preserving the distributed nature of 
 
 ### Bundle Management
 
-Each bundle contains:
+Each network bundle contains:
 
 - Unique identifier
-- Source node
-- Destination node
-- Timestamp
-- TTL (Time To Live)
-- Payload
+- Source node ID
+- Destination node ID
+- Creation timestamp
+- Expiration timestamp
+- Typed payload
 
-Bundles are serialized using Serde + Protobuf and stored locally per node.
+Bundles are transferable network data. Local lifecycle state is stored separately through `StoredBundle`, so one node can track a bundle as pending, in transit, delivered, or expired without putting that local state into the network bundle itself.
+
+The current payload model supports:
+
+- User messages
+- ACKs referencing the original bundle ID
+- Summary-vector requests
+- Summary vectors containing known bundle IDs
 
 ---
 
@@ -77,6 +83,7 @@ Bundles are serialized using Serde + Protobuf and stored locally per node.
 - Local structured storage
 - Duplicate detection
 - Automatic removal of expired bundles
+- Local status tracking through `StoredBundle`
 - State recovery after node restart
 
 Each node maintains independent persistent storage.
@@ -85,28 +92,28 @@ Each node maintains independent persistent storage.
 
 ### Routing Logic
 
-- Store–Carry–Forward mechanism
+- Store-Carry-Forward mechanism
 - Epidemic routing (simplified)
 - Peer inventory synchronization
 - Duplicate forwarding prevention
-- Delivery confirmation handling (ACK)
+- Delivery confirmation handling through ACK payloads
 
 ---
 
 ### Convergence Layer
 
-- CLA trait abstracts all transport concerns
-- Current implementation: TCP via Tokio
+- CLA trait abstracts transport concerns
+- Current intended implementation: UDP via Tokio
 - New transports can be added without touching bundle or routing logic
 
 ### Command Line Interface
 
 Available commands:
 
-- `send` – create and send a bundle
-- `list` – list locally stored bundles
-- `peers` – display configured peers
-- `status` – display node state
+- `send`: create and send a bundle
+- `list`: list locally stored bundles
+- `peers`: display configured peers
+- `status`: display node state
 
 ---
 
@@ -114,33 +121,25 @@ Available commands:
 
 The project follows a modular architecture where each feature is isolated in its own module.
 
-```
+```text
 WhatSpace/
 ├── src/
 │   ├── main.rs
-│   ├── cli/
-│   │   ├── mod.rs
-│   │   ├── cli.rs
-│   │   └── handlers.rs
+│   ├── model.rs              <- Node and endpoint structs
 │   ├── bundle/
-│   │   ├── mod.rs
-│   │   ├── model.rs          ← Bundle struct, fields, serialization
-│   │   ├── bundle_manager.rs ← lifecycle: create, TTL, ACK
-│   │   └── storage.rs        ← persist, dedup, expiry
-│   ├── routing/
-│   │   ├── mod.rs
-│   │   ├── engine.rs         ← orchestrates routing decisions
-│   │   ├── epidemic.rs       ← epidemic routing strategy
-│   │   └── scf.rs            ← store-carry-forward strategy
+│   │   ├── model.rs          <- Bundle, payload, stored bundle, bundle layer
+│   │   ├── bundle_layer.rs   <- bundle layer orchestration
+│   │   ├── bundle_manager.rs <- lifecycle: create, expiration, ACK
+│   │   ├── routing.rs        <- epidemic routing decisions
+│   │   └── storage.rs        <- persist, dedup, expiry, local status
 │   └── cla/
-│       ├── mod.rs            ← CLA trait definition
-│       └── tcp.rs            ← TCP implementation of the CLA
+│       └── bundle.proto      <- bundle wire schema
 ├── scripts/
 │   └── test_ack_flow.sh
-├── tests/
 ├── Cargo.toml
 └── README.md
 ```
+
 ---
 
 ## Running the Project
@@ -151,7 +150,7 @@ WhatSpace/
 cargo build
 ```
 
-### 2. Run 
+### 2. Run
 
 ```bash
 cargo run

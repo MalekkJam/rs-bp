@@ -1,6 +1,18 @@
+use uuid::Uuid;
+
+use crate::bundle::model::BundleLayer;
+use crate::cla::ConvergenceLayer;
+
 pub struct Node {
-    id: Uuid,
-    bundle : BundleLayer, // handle bundle creation, ttl, ack,
-    cla : ConvergenceLayer, // serialize bundle, decouple bundle with a specific transport type (udp)
-    transport : TransportLayer // send data with each type 
+    pub id: Uuid,
+    pub name: String,
+    pub endpoint: NodeEndpoint,
+    pub peers: Vec<Uuid>,
+    pub bundle_layer: BundleLayer,
+    pub cla: Box<dyn ConvergenceLayer>,
+}
+
+pub struct NodeEndpoint {
+    pub address: String,
+    pub port: u16,
 }

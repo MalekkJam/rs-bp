@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+enum BundleKind {
+    DATA = 0;
+    ACK = 1;
+    REQUESTSV = 2;
+    SUMMARYVEC = 3;
+}
+
+enum MsgStatus {
+    PENDING = 0;
+    DELIVERED = 1;
+    EXPIRED = 2;
+}
+
+message ProtobufBundle {
+    string id = 1;
+
+    // SOURCE
+    string source_id = 2;
+    string source_name = 3;
+    string source_address = 4;
+    uint32 source_port = 5;
+    repeated string source_peers = 6; // equivalent to the Vec<>
+
+    // DESTINATION
+    string destination_id = 7;
+    string destination_name = 8;
+    string destination_address = 9;
+    uint32 destination_port = 10;
+    repeated string destination_peers = 11;
+
+    // METADATA
+    int64 timestamp = 12;
+    uint64 ttl = 13;
+
+    // PAYLOAD
+    BundleKind kind = 14;
+    string kind_data = 15;
+
+    // STATUS
+    MsgStatus shipment_status = 16;
+}

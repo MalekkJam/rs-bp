@@ -1,20 +1,35 @@
-use std::string::String;
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
+use crate::bundle::bundle_manager::BundleManager;
+use crate::bundle::routing::RoutingEngine;
+use crate::bundle::storage::Storage;
 
 pub struct BundleLayer {
-    bundle_manager: BundleManager,
-    storage: Storage,
-    routing_engine: RoutingEngine,
+    pub bundle_manager: BundleManager,
+    pub storage: Storage,
+    pub routing_engine: RoutingEngine,
 }
 
 pub struct Bundle {
-    pub id: Uuid,                   
-    pub source: Node,               
-    pub destination: Node,        
-    pub content : String,
-    pub timestamp: DateTime<Utc>,   
-    pub ttl: DateTime<Utc>, 
-    pub kind: BundleKind, 
-    pub shipment_status: MsgStatus,
+    pub id: Uuid,
+    pub source: Uuid,
+    pub destination: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub payload: BundlePayload,
+}
+
+pub enum BundlePayload {
+    Message(String),
+    Ack { original_bundle_id: Uuid },
+    RequestSummaryVector,
+    SummaryVector(Vec<Uuid>),
+}
+
+pub struct StoredBundle {
+    pub bundle: Bundle,
+    pub status: MsgStatus,
 }
 
 pub enum MsgStatus {
@@ -33,7 +48,3 @@ pub enum MsgStatus {
     Expired,
 }
 
-pub enum BundleKind {
-    Message, 
-    Ack,
-}

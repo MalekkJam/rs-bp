@@ -1,6 +1,6 @@
 use std::fs::File;
 
-const MAXIMUM_CAPACITY: usize = 1_000; 
+const MAXIMUM_CAPACITY: usize = 1_000;
 const FILE_PATH : &str = "storage/bundles.json";
 
 pub struct Storage {
@@ -65,7 +65,7 @@ mod tests {
         let storage = Storage::new();
         assert_eq!(storage.get_capacity(), MAXIMUM_CAPACITY);
     }
-    
+
     #[test]
     fn test_get_capacity_returns_current_capacity() {
         let storage = storage_with_capacity(42);
@@ -134,5 +134,5 @@ mod tests {
             shipment_status: MsgStatus::Pending,
         }
     }
-}   
+}
 

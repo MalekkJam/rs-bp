@@ -1,27 +1,30 @@
+use crate::bundle::model::{Bundle, BundlePayload};
+use chrono::{Duration, Utc};
 use uuid::Uuid;
-use chrono::{ Local, Duration};
-use crate::bundle::model::{Bundle, BundleKind, MsgStatus};
 
 const DEFAULT_TTL: Duration = Duration::weeks(3);
 
 pub struct BundleManager;
 
 impl BundleManager {
-
     pub fn new() -> Self {
         BundleManager
     }
 
-    fn create_bundle(nodeId : Uuid, destination : Uuid, content : String, bundleKind : BundleKind) -> Bundle {
+    fn create_bundle(
+        node_id: Uuid,
+        destination: Uuid,
+        payload: BundlePayload,
+    ) -> Bundle {
+        let created_at = Utc::now();
+
         Bundle {
-            id : Uuid::new_v4(),
-            source : nodeId,
-            destination : destination,
-            content : content,
-            timestamp : Local::now(),
-            ttl : DEFAULT_TTL,
-            kind : bundleKind,
-            shipment_status : MsgStatus::Pending
+            id: Uuid::new_v4(),
+            source: node_id,
+            destination,
+            created_at,
+            expires_at: created_at + DEFAULT_TTL,
+            payload,
         }
     }
 }
