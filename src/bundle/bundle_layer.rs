@@ -11,11 +11,35 @@ impl BundleLayer {
         self.bundle_manager.create_bundle(nodeId, destination, content, bundleKind)
     }
 
-    pub fn store_bundle(&self, bundle : Bundle) {
+    pub fn handle_bundle(&self, bundle : Bundle) {
+        let decision = self.routing_engine.epidemic_propagation(&bundle);
+        match decision {
+            EpidemicDecision::Ignore => {
+                // do nothing
+            },
+            EpidemicDecision::StoreAndForward { peers } => {
+                self.store_bundle(bundle.clone());
+                self.forward_bundle(bundle, peers);
+            },
+            EpidemicDecision::AckDelivered { original_bundle_id } => {
+                self.delete_bundle(original_bundle_id);
+            },
+            EpidemicDecision::ForwardAckAndDelete { original_bundle_id, peers } => {
+                self.delete_bundle(original_bundle_id);
+                self.forward_bundle(bundle, peers);
+            }
+        }
+    }
+
+    fn store_bundle(&self, bundle : Bundle) {
         self.storage.store_bundle(bundle);
     }
 
-    pub fn delete_bundle(&self, bundle_id : Uuid) {
+    fn delete_bundle(&self, bundle_id : Uuid) {
         self.storage.delete_bundle(bundle_id);
+    }
+
+    fn forward_bundle(&self, bundle: Bundle, peers: Vec<Uuid>) {
+        self.routing_engine.forward_bundle(bundle, peers);
     }
 }

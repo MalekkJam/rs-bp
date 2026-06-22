@@ -22,9 +22,8 @@ pub enum EpidemicDecision {
     AckDelivered { original_bundle_id: Uuid },
 
     // Case 3b: we are an intermediate node that received an ack.
-    // BundleLayer must forward the ack to peers and delete our copy of the data bundle.
+    // BundleLayer already holds the ack bundle — forward it to peers and delete our copy of the data bundle.
     ForwardAckAndDelete {
-        ack_id: Uuid,
         original_bundle_id: Uuid,
         peers: Vec<Uuid>,
     },
@@ -82,9 +81,17 @@ impl RoutingEngine {
 
         // Case 3b: intermediate node — forward the ack and drop our data bundle copy
         EpidemicDecision::ForwardAckAndDelete {
-            ack_id: bundle.id,
             original_bundle_id,
             peers: self.peers.clone(),
         }
     }
+
+    pub fn forward_bundle(&self,bundle : Bundle, peers: Vec<Uuid>) {
+
+        for peer in peers {
+            // Here you would implement the actual sending logic, e.g., via network sockets
+            println!("Forwarding bundle {} to peer {}", bundle.id, peer);
+        }
+    }
+
 }

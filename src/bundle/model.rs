@@ -11,6 +11,7 @@ pub struct BundleLayer {
     pub routing_engine: RoutingEngine,
 }
 
+#[derive(Clone)]
 pub struct Bundle {
     pub id: Uuid,
     pub source: Uuid,
@@ -20,6 +21,7 @@ pub struct Bundle {
     pub payload: BundlePayload,
 }
 
+#[derive(Clone)]
 pub enum BundlePayload {
     Message(String),
     Ack { original_bundle_id: Uuid },
@@ -27,23 +29,3 @@ pub enum BundlePayload {
     SummaryVector(Vec<Uuid>),
 }
 
-pub struct StoredBundle {
-    pub bundle: Bundle,
-    pub status: BundleStatus,
-}
-
-pub enum BundleStatus {
-    // the bundle is created but not yet sent
-    Pending,
-
-    // the bundle is on the way to the destination
-    InTransit,
-
-    // the bundle has been delivered to the destination
-    /// For Data bundles: set when an Ack is received, then deleted from storage.
-    /// For Ack bundles: set when the Ack reaches the original sender.
-    Delivered,
-
-    // the bundle has expired //TTL exceeded
-    Expired,
-}

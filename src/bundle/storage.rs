@@ -6,35 +6,29 @@ const FILE_PATH: &str = "storage/bundles.json";
 
 pub struct Storage {
     capacity: usize, // max number of bundles to store
-    bundles: Vec<StoredBundle>,
+    bundles: Vec<Bundle>,
 }
 
 impl Storage {
     pub fn new() -> Self {
         Storage {
             capacity: MAXIMUM_CAPACITY,
+            bundles: Vec::new(),
         }
     }
 
-    fn get_capacity(&self) -> usize {
-        self.capacity
-    }
-
-    fn store_bundle(&mut self, bundle: Bundle) -> Result {
+    pub fn store_bundle(&mut self, bundle: Bundle) -> Result {
         if (self.capacity == 0) {
             return Err("Storage is full");
         } else {
-            let stored = StoredBundle {
-                bundle,
-                status: BundleStatus::Pending,
-            };
-            save_bundle_to_storage(stored);
+            self.bundles.push(bundle);
+            save_bundles_to_storage(&self.bundles);
             self.capacity -= 1;
             return Ok(());
         }
     }
 
-    fn delete_bundle(&self, bundle_id: Uuid) -> Result {
+    pub fn delete_bundle(&mut self, bundle_id: Uuid) -> Result {
         if (self.capacity == MAXIMUM_CAPACITY) {
             return Err("Storage is empty");
         } else {
@@ -44,8 +38,8 @@ impl Storage {
         }
     }
 
-    fn save_bundle_to_storage(stored: StoredBundle) {
-        let data = serde_json::to_string(&stored).unwrap();
+    fn save_bundles_to_storage(bundles: &Vec<Bundle>) {
+        let data = serde_json::to_string(bundles).unwrap();
         let mut file = File::create(FILE_PATH).unwrap();
         file.write_all(data.as_bytes()).unwrap();
     }
@@ -53,7 +47,7 @@ impl Storage {
     fn delete_bundle_from_storage(bundle_id: Uuid) {
         let mut bundles = load_bundles_from_storage();
         bundles.retain(|b| b.id != bundle_id);
-        save_bundles_to_storage(bundles);
+        save_bundles_to_storage(&bundles);
     }
 }
 
