@@ -27,4 +27,12 @@ impl BundleManager {
             payload,
         }
     }
+
+    pub fn bundle_expired (bundle: &Bundle) -> bool {
+        Utc::now() >= bundle.expires_at
+    }
+
+    pub fn bundle_at_destination (bundle: &Bundle, node_id: Uuid) -> bool {
+        bundle.destination == node_id
+    }
 }
