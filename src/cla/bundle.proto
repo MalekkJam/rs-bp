@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+message Ack {
+    string original_bundle_id = 1;
+}
+
+message SummaryVector {
+    repeated string bundle_ids = 1;
+}
+
+message RequestSummaryVector {}
+
+message ProtobufBundle {
+    string id = 1;
+    string source_id = 2;
+    string destination_id = 3;
+    int64 created_at = 4;
+    int64 expires_at = 5;
+
+    oneof payload {
+        string message = 6;
+        Ack ack = 7;
+        RequestSummaryVector request_summary_vector = 8;
+        SummaryVector summary_vector = 9;
+    }
+}
