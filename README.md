@@ -1,165 +1,217 @@
-# whatspace
+# rs-bp
 
-Whatspace is a minimal Delay-Tolerant Networking (DTN) middleware implemented in Rust.
-It simulates distributed DTN nodes based on the Store-Carry-Forward model.
+`rs-bp` is an experimental Delay-Tolerant Networking (DTN) node written in
+Rust. It implements a small store-and-forward messaging workflow over UDP and
+uses Protocol Buffers as its wire format.
 
-The project focuses on modular system design, persistent storage, asynchronous networking, and distributed coordination between independent nodes.
+The project is inspired by the architectural principles of
+[RFC 9171](https://www.rfc-editor.org/rfc/rfc9171), but it is not currently a
+Bundle Protocol v7 compliant implementation. Its immediate purpose is to
+provide a clear, testable foundation for intermittent-connectivity experiments.
 
----
+## Current Status
 
-## Overview
+The current MVP supports:
 
-The main goal of this project is to build a Rust implementation inspired by [RFC 9171](https://datatracker.ietf.org/doc/rfc9171/).
+- Independent node processes bound to configurable UDP addresses.
+- Interactive text-message submission to a configured next-hop node.
+- Typed bundles with UUIDs, source and destination IDs, creation time, expiry,
+  and payload data.
+- Protocol Buffer serialization through a UDP convergence layer.
+- Delivery acknowledgements referencing the original bundle ID.
+- A durable pending queue under `storage/`.
+- Automatic retry every two seconds until an acknowledgement is received.
+- Queue restoration after the sender restarts.
+- Duplicate message suppression during a node process lifetime.
+- Expiration of pending bundles after their configured TTL.
 
-Each instance of the program represents an independent DTN node capable of:
-
-- Generating and receiving bundles
-- Persisting bundles locally
-- Forwarding bundles opportunistically
-- Handling bundle expiration
-- Recovering from process restarts
-- Operating under intermittent connectivity
-
-Multiple nodes can be executed simultaneously in separate terminals or containers.
-
----
+Summary-vector payloads are represented in the domain and wire models, but
+peer inventory synchronization is not implemented in the runtime yet.
 
 ## Architecture
 
-### Layered Node Architecture
-
-<img width="2720" height="2320" alt="whatspace_dtn_architecture" src="https://github.com/user-attachments/assets/b4f1c5f8-c2e0-43de-a677-df6c4f8fd3be" />
-
-Each node is structured into the following modules:
-
-- **Application Layer**: handles user commands and display only. It has no knowledge of routing or network internals.
-- **Bundle Layer**: the core DTN logic. It manages bundle lifecycle, expiration, ACK handling, persistent storage, deduplication, and routing decisions. It never touches transport directly.
-- **Convergence Layer**: the transport adapter. It serializes bundles for sending and deserializes incoming bytes back into bundles. It decouples the bundle layer from any specific transport.
-- **Transport Layer**: raw network I/O, currently intended as UDP via Tokio.
-
-Runtime ownership follows the same layering: a `Node` owns its `BundleLayer` and convergence layer, while a convergence-layer implementation owns or uses the transport below it.
-
----
-
-### Distributed Architecture
-
-Each node maintains:
-
-- Its own process
-- Its own local storage
-- Its own routing logic
-
-Nodes communicate through convergence-layer connections.
-There is no shared database between nodes, preserving the distributed nature of the system.
-
----
-
-## Features
-
-### Bundle Management
-
-Each network bundle contains:
-
-- Unique identifier
-- Source node ID
-- Destination node ID
-- Creation timestamp
-- Expiration timestamp
-- Typed payload
-
-Bundles are transferable network data. Local lifecycle state is stored separately through `StoredBundle`, so one node can track a bundle as pending, in transit, delivered, or expired without putting that local state into the network bundle itself.
-
-The current payload model supports:
-
-- User messages
-- ACKs referencing the original bundle ID
-- Summary-vector requests
-- Summary vectors containing known bundle IDs
-
----
-
-### Persistent Storage
-
-- Local structured storage
-- Duplicate detection
-- Automatic removal of expired bundles
-- Local status tracking through `StoredBundle`
-- State recovery after node restart
-
-Each node maintains independent persistent storage.
-
----
-
-### Routing Logic
-
-- Store-Carry-Forward mechanism
-- Epidemic routing (simplified)
-- Peer inventory synchronization
-- Duplicate forwarding prevention
-- Delivery confirmation handling through ACK payloads
-
----
-
-### Convergence Layer
-
-- CLA trait abstracts transport concerns
-- Current intended implementation: UDP via Tokio
-- New transports can be added without touching bundle or routing logic
-
-### Command Line Interface
-
-Available commands:
-
-- `send`: create and send a bundle
-- `list`: list locally stored bundles
-- `peers`: display configured peers
-- `status`: display node state
-
----
-
-## Project Structure
-
-The project follows a modular architecture where each feature is isolated in its own module.
+The codebase separates transferable bundle data from network transport:
 
 ```text
-WhatSpace/
-├── src/
-│   ├── main.rs
-│   ├── model.rs              <- Node and endpoint structs
-│   ├── bundle/
-│   │   ├── model.rs          <- Bundle, payload, stored bundle, bundle layer
-│   │   ├── bundle_layer.rs   <- bundle layer orchestration
-│   │   ├── bundle_manager.rs <- lifecycle: create, expiration, ACK
-│   │   ├── routing.rs        <- epidemic routing decisions
-│   │   └── storage.rs        <- persist, dedup, expiry, local status
-│   └── cla/
-│       └── bundle.proto      <- bundle wire schema
-├── scripts/
-│   └── test_ack_flow.sh
-├── Cargo.toml
-└── README.md
+Interactive CLI
+      |
+      v
+Bundle manager and pending queue
+      |
+      v
+UDP convergence layer
+      |
+      +-- Bundle <-> Protocol Buffer conversion
+      |
+      v
+Tokio UDP transport
 ```
 
----
+The main components are:
 
-## Running the Project
+- `bundle`: domain models, bundle creation, expiration checks, and routing
+  decisions.
+- `cla`: Protocol Buffer conversion and the UDP convergence layer.
+- `transport`: raw asynchronous UDP send and receive operations.
+- `main.rs`: node configuration, command processing, retry scheduling,
+  acknowledgement handling, and MVP queue persistence.
 
-### 1. Build
+Mutable node state is currently owned by one Tokio task and multiplexed with
+`tokio::select!`. This keeps the MVP free of shared-state locks. Persistence
+will eventually move out of `main.rs` into the dedicated bundle storage layer.
+
+## Bundle Model
+
+Every bundle contains:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Unique bundle identifier |
+| `source` | Originating node identifier |
+| `destination` | Intended next-hop node identifier |
+| `created_at` | Bundle creation time in UTC |
+| `expires_at` | Expiration time in UTC |
+| `payload` | Message, ACK, summary request, or summary vector |
+
+Node IDs are deterministically derived from the configured socket address in
+the current MVP. Pending bundles are stored as protobuf-encoded files under:
+
+```text
+storage/<node-id>/pending/<bundle-id>.bundle
+```
+
+The `storage/` directory is excluded from version control.
+
+## Requirements
+
+- A recent stable Rust toolchain.
+- Two available local UDP ports for the two-node example.
+
+Verify the toolchain with:
 
 ```bash
-cargo build
+rustc --version
+cargo --version
 ```
 
-### 2. Run
+## Running Two Nodes
+
+Open two terminals in the repository.
+
+Terminal A:
 
 ```bash
-cargo run
+cargo run -- node 127.0.0.1:7001 127.0.0.1:7002
 ```
 
----
+Terminal B:
+
+```bash
+cargo run -- node 127.0.0.1:7002 127.0.0.1:7001
+```
+
+At either prompt, send a message with:
+
+```text
+send hello from node A
+```
+
+The receiving node prints the message and sends an ACK to the UDP source. The
+sending node removes the bundle from its pending queue only after that ACK is
+received.
+
+Running `cargo run` without arguments starts the same node mode and prompts for
+the local and next-hop addresses.
+
+## Offline Delivery
+
+The next-hop node does not need to be running when a message is submitted:
+
+1. Start node A with node B's address as its next hop.
+2. Leave node B offline and enter `send <text>` on node A.
+3. Check node A with `pending`; the bundle remains queued on disk.
+4. Start node B.
+5. Node A retries the bundle, node B displays it, and node B returns an ACK.
+6. Node A removes the acknowledged bundle from memory and disk.
+
+Because UDP does not establish a connection, delivery is determined by the
+application-level ACK rather than by a successful socket send.
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `send <text>` | Queue and immediately attempt to send a text bundle |
+| `pending` | List bundles waiting for acknowledgement |
+| `status` | Show the node ID, next hop, and pending count |
+| `help` | Display available commands |
+| `quit` or `exit` | Stop the node |
+
+Run the self-contained transport demonstration with:
+
+```bash
+cargo run -- demo
+```
+
+## Testing
+
+Run all current tests with:
+
+```bash
+cargo test --all-targets
+```
+
+The test suite currently covers UDP binding and datagram exchange, protobuf
+round trips, malformed datagram rejection, and end-to-end bundle transfer
+through the UDP convergence layer.
+
+## Project Layout
+
+```text
+rs-bp/
+|-- build.rs
+|-- Cargo.toml
+|-- src/
+|   |-- main.rs
+|   |-- lib.rs
+|   |-- bundle/
+|   |   |-- model.rs
+|   |   |-- bundle_manager.rs
+|   |   |-- routing.rs
+|   |   |-- bundle_layer.rs       # under refactoring
+|   |   `-- storage.rs            # under refactoring
+|   |-- cla/
+|   |   |-- bundle.proto
+|   |   |-- protobuf.rs
+|   |   `-- cla_udp.rs
+|   `-- transport/
+|       `-- udp.rs
+`-- storage/                       # runtime data, ignored by Git
+```
+
+## Known Limitations
+
+- The runtime supports one configured next hop per node.
+- There is no peer discovery, multi-hop forwarding, or contact scheduling.
+- Summary-vector synchronization is not active.
+- Persistence is implemented in the MVP entry point rather than the final
+  bundle storage abstraction.
+- Duplicate suppression is not persisted across receiver restarts.
+- UDP traffic is unauthenticated and unencrypted.
+- Incoming protobuf fields still require stricter UUID and timestamp
+  validation.
+- The current implementation is RFC-inspired, not RFC 9171 interoperable.
+
+## Roadmap
+
+1. Make protobuf-to-domain conversion fallible and reject malformed fields.
+2. Complete the storage and bundle-layer abstractions.
+3. Move pending-queue and ACK orchestration out of `main.rs`.
+4. Add peer tables and summary-vector exchange.
+5. Implement multi-hop store-carry-forward routing.
+6. Add restart, ACK-loss, and multi-node integration tests.
 
 ## License
 
-This project is licensed under the MIT License.
-
-See the [LICENSE](LICENSE) file for details.
+This project is distributed under the terms of the repository's
+[LICENSE](LICENSE) file.

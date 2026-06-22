@@ -7,14 +7,14 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use rs_bp::bundle::bundle_manager::BundleManager;
+use rs_bp::bundle::{Bundle, BundlePayload};
+use rs_bp::cla::bundle::ProtobufBundle;
+use rs_bp::cla::{protobuf, ClaError, UdpConvergenceLayer};
+use rs_bp::transport::UdpTransport;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::{Instant, MissedTickBehavior};
 use uuid::Uuid;
-use WhatSpace::bundle::bundle_manager::BundleManager;
-use WhatSpace::bundle::{Bundle, BundlePayload};
-use WhatSpace::cla::bundle::ProtobufBundle;
-use WhatSpace::cla::{protobuf, ClaError, UdpConvergenceLayer};
-use WhatSpace::transport::UdpTransport;
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
 
@@ -64,7 +64,7 @@ async fn run_node(bind_addr: SocketAddr, next_addr: SocketAddr) -> AppResult<()>
     let mut pending = load_pending(&pending_dir)?;
     let mut received_ids = HashSet::new();
 
-    println!("WhatSpace node {node_id}");
+    println!("rs-bp node {node_id}");
     println!("listening on {local_addr}");
     println!("next node is {next_node_id} at {next_addr}");
     println!("{} pending bundle(s) restored", pending.len());
@@ -259,7 +259,7 @@ async fn run_demo() -> AppResult<()> {
     let bundle = manager.create_bundle(
         node_id_for_address(sender.local_addr()?),
         node_id_for_address(receiver_addr),
-        BundlePayload::Message("Hello from the WhatSpace MVP".to_string()),
+        BundlePayload::Message("Hello from the rs-bp MVP".to_string()),
     );
 
     sender.send_bundle(&bundle, receiver_addr).await?;
@@ -401,7 +401,7 @@ fn ensure_no_extra_args(mut args: impl Iterator<Item = String>) -> AppResult<()>
 }
 
 fn print_prompt() -> AppResult<()> {
-    print!("whatspace> ");
+    print!("rs-bp> ");
     io::stdout().flush()?;
     Ok(())
 }
