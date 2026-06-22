@@ -1,6 +1,6 @@
+use crate::bundle::model::{Bundle, BundlePayload};
 use std::collections::HashSet;
 use uuid::Uuid;
-use crate::bundle::model::{Bundle, BundleKind};
 
 pub struct RoutingEngine {
     node_id: Uuid,
@@ -15,11 +15,15 @@ pub enum EpidemicDecision {
     Ignore,
 
     // Case 1: new message bundle — store it and flood to every peer.
-    StoreAndForward { peers: Vec<Uuid> },
+    StoreAndForward {
+        peers: Vec<Uuid>,
+    },
 
     // Case 3a: ack reached its original sender (us).
     // BundleLayer must delete the data bundle we were holding.
-    AckDelivered { original_bundle_id: Uuid },
+    AckDelivered {
+        original_bundle_id: Uuid,
+    },
 
     // Case 3b: we are an intermediate node that received an ack.
     // BundleLayer already holds the ack bundle — forward it to peers and delete our copy of the data bundle.
@@ -41,9 +45,14 @@ impl RoutingEngine {
     /// Called by BundleLayer whenever a bundle is created locally or received
     /// from a peer. Returns a decision; BundleLayer performs the actual side effects.
     pub fn epidemic_propagation(&mut self, bundle: &Bundle) -> EpidemicDecision {
-        match bundle.kind {
-            BundleKind::Message => self.handle_message(bundle),
-            BundleKind::Ack     => self.handle_ack(bundle),
+        match &bundle.payload {
+            BundlePayload::Message(_) => self.handle_message(bundle),
+            BundlePayload::Ack { original_bundle_id } => {
+                self.handle_ack(bundle, *original_bundle_id)
+            }
+            BundlePayload::RequestSummaryVector | BundlePayload::SummaryVector(_) => {
+                EpidemicDecision::Ignore
+            }
         }
     }
 
@@ -60,14 +69,7 @@ impl RoutingEngine {
         }
     }
 
-    fn handle_ack(&mut self, bundle: &Bundle) -> EpidemicDecision {
-        // The ack's content field carries the original data bundle's ID.
-        // e.g. when NodeB creates the ack, it sets content = original_bundle.id.to_string()
-        let original_bundle_id = match Uuid::parse_str(&bundle.content) {
-            Ok(id) => id,
-            Err(_) => return EpidemicDecision::Ignore, // malformed ack
-        };
-
+    fn handle_ack(&mut self, bundle: &Bundle, original_bundle_id: Uuid) -> EpidemicDecision {
         // Dedup: ignore if we already processed this ack
         if self.seen_ids.contains(&bundle.id) {
             return EpidemicDecision::Ignore;
@@ -75,7 +77,7 @@ impl RoutingEngine {
         self.seen_ids.insert(bundle.id);
 
         // Case 3a: we are the original sender — the ack has reached home
-        if bundle.destination.id == self.node_id {
+        if bundle.destination == self.node_id {
             return EpidemicDecision::AckDelivered { original_bundle_id };
         }
 
@@ -86,12 +88,10 @@ impl RoutingEngine {
         }
     }
 
-    pub fn forward_bundle(&self,bundle : Bundle, peers: Vec<Uuid>) {
-
+    pub fn forward_bundle(&self, bundle: Bundle, peers: Vec<Uuid>) {
         for peer in peers {
             // Here you would implement the actual sending logic, e.g., via network sockets
             println!("Forwarding bundle {} to peer {}", bundle.id, peer);
         }
     }
-
 }

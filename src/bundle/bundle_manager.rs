@@ -1,5 +1,5 @@
 use crate::bundle::model::{Bundle, BundlePayload};
-use chrono::{Duration, Utc};
+use chrono::{Duration, Timelike, Utc};
 use uuid::Uuid;
 
 const DEFAULT_TTL: Duration = Duration::weeks(3);
@@ -11,12 +11,15 @@ impl BundleManager {
         BundleManager
     }
 
-    fn create_bundle(
+    pub fn create_bundle(
+        &self,
         node_id: Uuid,
         destination: Uuid,
         payload: BundlePayload,
     ) -> Bundle {
-        let created_at = Utc::now();
+        let created_at = Utc::now()
+            .with_nanosecond(0)
+            .expect("zero nanoseconds is always valid");
 
         Bundle {
             id: Uuid::new_v4(),
@@ -28,11 +31,11 @@ impl BundleManager {
         }
     }
 
-    pub fn bundle_expired (bundle: &Bundle) -> bool {
+    pub fn bundle_expired(bundle: &Bundle) -> bool {
         Utc::now() >= bundle.expires_at
     }
 
-    pub fn bundle_at_destination (bundle: &Bundle, node_id: Uuid) -> bool {
+    pub fn bundle_at_destination(bundle: &Bundle, node_id: Uuid) -> bool {
         bundle.destination == node_id
     }
 }

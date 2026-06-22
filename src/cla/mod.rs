@@ -1,3 +1,8 @@
-pub mod cla;
+pub mod bundle {
+    include!(concat!(env!("OUT_DIR"), "/proto/bundle.rs"));
+}
 
-pub use cla::ConvergenceLayer;
+pub mod cla_udp;
+pub mod protobuf;
+
+pub use cla_udp::{ClaError, UdpConvergenceLayer};

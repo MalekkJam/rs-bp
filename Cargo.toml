@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 uuid = { version = "1.22.0", features = ["v4", "serde"] }   # to gnenerate the unique id
 chrono = { version = "0.4", features = ["serde"] } # timestamp gestio
+protobuf = "3"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt", "net", "time"] }
 
 [build-dependencies]
 protobuf-codegen = "3"
