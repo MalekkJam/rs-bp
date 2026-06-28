@@ -1,11 +1,9 @@
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bundle {
-    pub id: Uuid,
-    pub source: Uuid,
-    pub destination: Uuid,
+    pub id: String, // ex: ipn:1:1 or ipn:1:2
+    pub source: String,
+    pub destination: String,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub payload: BundlePayload,
@@ -14,7 +12,7 @@ pub struct Bundle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BundlePayload {
     Message(String),
-    Ack { original_bundle_id: Uuid },
+    Ack { original_bundle_id: String },
     RequestSummaryVector,
-    SummaryVector(Vec<Uuid>),
+    SummaryVector(Vec<String>),
 }

@@ -69,7 +69,7 @@ impl UdpConvergenceLayer {
 
     fn deserialize(&self, bytes: &[u8]) -> Result<Bundle, ClaError> {
         let protobuf_bundle = protobuf::deserialize(bytes).ok_or(ClaError::Deserialize)?;
-        Ok(Bundle::from(protobuf_bundle))
+        Bundle::try_from(protobuf_bundle).map_err(|_| ClaError::Deserialize)
     }
 }
 
@@ -77,17 +77,18 @@ impl UdpConvergenceLayer {
 mod tests {
     use super::{ClaError, UdpConvergenceLayer};
     use crate::bundle::{Bundle, BundlePayload};
+    use crate::cla::bundle::{protobuf_bundle, ProtobufBundle};
+    use crate::cla::protobuf;
     use crate::transport::UdpTransport;
     use chrono::{Duration as ChronoDuration, Timelike, Utc};
     use std::time::Duration;
-    use uuid::Uuid;
 
     fn make_bundle(payload: BundlePayload) -> Bundle {
         let created_at = Utc::now().with_nanosecond(0).unwrap();
         Bundle {
-            id: Uuid::new_v4(),
-            source: Uuid::new_v4(),
-            destination: Uuid::new_v4(),
+            id: "ipn:1:1".to_string(),
+            source: "ipn:1:7001".to_string(),
+            destination: "ipn:1:7002".to_string(),
             created_at,
             expires_at: created_at + ChronoDuration::minutes(5),
             payload,
@@ -102,7 +103,7 @@ mod tests {
                 .unwrap(),
         );
         let bundle = make_bundle(BundlePayload::Ack {
-            original_bundle_id: Uuid::new_v4(),
+            original_bundle_id: "ipn:1:2".to_string(),
         });
 
         let bytes = cla.serialize(&bundle).unwrap();
@@ -147,6 +148,27 @@ mod tests {
         );
 
         let error = cla.deserialize(b"not a protobuf bundle").unwrap_err();
+
+        assert!(matches!(error, ClaError::Deserialize));
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_node_id_fields() {
+        let cla = UdpConvergenceLayer::new(
+            UdpTransport::bind("127.0.0.1:0".parse().unwrap())
+                .await
+                .unwrap(),
+        );
+        let mut protobuf_bundle = ProtobufBundle::new();
+        protobuf_bundle.id = "ipn:1:1".to_string();
+        protobuf_bundle.source_id = String::new();
+        protobuf_bundle.destination_id = "ipn:1:7002".to_string();
+        protobuf_bundle.created_at = 1;
+        protobuf_bundle.expires_at = 2;
+        protobuf_bundle.payload = Some(protobuf_bundle::Payload::Message("hello".to_string()));
+
+        let bytes = protobuf::serialize(&protobuf_bundle).unwrap();
+        let error = cla.deserialize(&bytes).unwrap_err();
 
         assert!(matches!(error, ClaError::Deserialize));
     }

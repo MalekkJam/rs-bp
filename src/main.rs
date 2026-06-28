@@ -3,7 +3,7 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io::{self, Write};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,7 +14,6 @@ use rs_bp::cla::{protobuf, ClaError, UdpConvergenceLayer};
 use rs_bp::transport::UdpTransport;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::{Instant, MissedTickBehavior};
-use uuid::Uuid;
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
 
@@ -60,7 +59,7 @@ async fn run_node(bind_addr: SocketAddr, next_addr: SocketAddr) -> AppResult<()>
     let node_id = node_id_for_address(local_addr);
     let next_node_id = node_id_for_address(next_addr);
     let manager = BundleManager::new();
-    let pending_dir = pending_directory(node_id);
+    let pending_dir = pending_directory(&node_id);
     let mut pending = load_pending(&pending_dir)?;
     let mut received_ids = HashSet::new();
 
@@ -88,8 +87,8 @@ async fn run_node(bind_addr: SocketAddr, next_addr: SocketAddr) -> AppResult<()>
                     line.trim(),
                     &cla,
                     &manager,
-                    node_id,
-                    next_node_id,
+                    &node_id,
+                    &next_node_id,
                     next_addr,
                     &pending_dir,
                     &mut pending,
@@ -105,7 +104,7 @@ async fn run_node(bind_addr: SocketAddr, next_addr: SocketAddr) -> AppResult<()>
                         handle_incoming(
                             &cla,
                             &manager,
-                            node_id,
+                            &node_id,
                             peer_addr,
                             bundle,
                             &pending_dir,
@@ -138,11 +137,11 @@ async fn handle_command(
     command: &str,
     cla: &UdpConvergenceLayer,
     manager: &BundleManager,
-    node_id: Uuid,
-    next_node_id: Uuid,
+    node_id: &str,
+    next_node_id: &str,
     next_addr: SocketAddr,
     pending_dir: &Path,
-    pending: &mut HashMap<Uuid, Bundle>,
+    pending: &mut HashMap<String, Bundle>,
 ) -> AppResult<bool> {
     if let Some(text) = command.strip_prefix("send ") {
         let text = text.trim();
@@ -157,7 +156,7 @@ async fn handle_command(
             BundlePayload::Message(text.to_string()),
         );
         save_pending(pending_dir, &bundle)?;
-        pending.insert(bundle.id, bundle.clone());
+        pending.insert(bundle.id.clone(), bundle.clone());
         cla.send_bundle(&bundle, next_addr).await?;
         println!("queued bundle {} for delivery", bundle.id);
         return Ok(true);
@@ -184,12 +183,12 @@ async fn handle_command(
 async fn handle_incoming(
     cla: &UdpConvergenceLayer,
     manager: &BundleManager,
-    node_id: Uuid,
+    node_id: &str,
     peer_addr: SocketAddr,
     bundle: Bundle,
     pending_dir: &Path,
-    pending: &mut HashMap<Uuid, Bundle>,
-    received_ids: &mut HashSet<Uuid>,
+    pending: &mut HashMap<String, Bundle>,
+    received_ids: &mut HashSet<String>,
 ) -> AppResult<()> {
     match &bundle.payload {
         BundlePayload::Message(text) => {
@@ -198,23 +197,23 @@ async fn handle_incoming(
                 return Ok(());
             }
 
-            if received_ids.insert(bundle.id) {
+            if received_ids.insert(bundle.id.clone()) {
                 println!("message from {}: {text}", bundle.source);
             }
 
             // ACK every copy, including duplicates, in case an earlier ACK was lost.
             let ack = manager.create_bundle(
-                node_id,
+                node_id.to_string(),
                 bundle.source,
                 BundlePayload::Ack {
-                    original_bundle_id: bundle.id,
+                    original_bundle_id: bundle.id.clone(),
                 },
             );
             cla.send_bundle(&ack, peer_addr).await?;
         }
         BundlePayload::Ack { original_bundle_id } => {
             if pending.remove(original_bundle_id).is_some() {
-                remove_pending(pending_dir, *original_bundle_id)?;
+                remove_pending(pending_dir, original_bundle_id)?;
                 println!("bundle {original_bundle_id} delivered and acknowledged");
             }
         }
@@ -230,13 +229,13 @@ async fn retry_pending(
     cla: &UdpConvergenceLayer,
     next_addr: SocketAddr,
     pending_dir: &Path,
-    pending: &mut HashMap<Uuid, Bundle>,
+    pending: &mut HashMap<String, Bundle>,
 ) -> AppResult<()> {
     let mut expired = Vec::new();
 
     for (bundle_id, bundle) in pending.iter() {
         if BundleManager::bundle_expired(bundle) {
-            expired.push(*bundle_id);
+            expired.push(bundle_id.clone());
         } else if let Err(error) = cla.send_bundle(bundle, next_addr).await {
             eprintln!("could not retry bundle {bundle_id}: {error}");
         }
@@ -244,7 +243,7 @@ async fn retry_pending(
 
     for bundle_id in expired {
         pending.remove(&bundle_id);
-        remove_pending(pending_dir, bundle_id)?;
+        remove_pending(pending_dir, &bundle_id)?;
         println!("expired pending bundle {bundle_id}");
     }
 
@@ -281,29 +280,13 @@ async fn create_cla(bind_addr: SocketAddr) -> AppResult<UdpConvergenceLayer> {
     Ok(UdpConvergenceLayer::new(transport))
 }
 
-fn node_id_for_address(address: SocketAddr) -> Uuid {
-    let mut bytes = [0_u8; 16];
-    let port = address.port().to_be_bytes();
-
-    match address.ip() {
-        IpAddr::V4(ip) => {
-            bytes[0..2].copy_from_slice(&port);
-            bytes[2] = 4;
-            bytes[12..16].copy_from_slice(&ip.octets());
-        }
-        IpAddr::V6(ip) => {
-            bytes.copy_from_slice(&ip.octets());
-            bytes[0] ^= port[0];
-            bytes[1] ^= port[1];
-        }
-    }
-
-    Uuid::from_bytes(bytes)
+fn node_id_for_address(address: SocketAddr) -> String {
+    format!("ipn:1:{}", address.port())
 }
 
-fn pending_directory(node_id: Uuid) -> PathBuf {
+fn pending_directory(node_id: &str) -> PathBuf {
     PathBuf::from("storage")
-        .join(node_id.to_string())
+        .join(safe_path_component(node_id))
         .join("pending")
 }
 
@@ -316,11 +299,11 @@ fn save_pending(directory: &Path, bundle: &Bundle) -> AppResult<()> {
             "could not serialize pending bundle",
         )
     })?;
-    fs::write(pending_path(directory, bundle.id), bytes)?;
+    fs::write(pending_path(directory, &bundle.id), bytes)?;
     Ok(())
 }
 
-fn load_pending(directory: &Path) -> AppResult<HashMap<Uuid, Bundle>> {
+fn load_pending(directory: &Path) -> AppResult<HashMap<String, Bundle>> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
@@ -337,10 +320,10 @@ fn load_pending(directory: &Path) -> AppResult<HashMap<Uuid, Bundle>> {
         let result = fs::read(&path)
             .ok()
             .and_then(|bytes| protobuf::deserialize(&bytes))
-            .map(Bundle::from);
+            .and_then(|bundle| Bundle::try_from(bundle).ok());
         match result {
             Some(bundle) => {
-                pending.insert(bundle.id, bundle);
+                pending.insert(bundle.id.clone(), bundle);
             }
             None => eprintln!("ignored invalid pending file {}", path.display()),
         }
@@ -349,7 +332,7 @@ fn load_pending(directory: &Path) -> AppResult<HashMap<Uuid, Bundle>> {
     Ok(pending)
 }
 
-fn remove_pending(directory: &Path, bundle_id: Uuid) -> AppResult<()> {
+fn remove_pending(directory: &Path, bundle_id: &str) -> AppResult<()> {
     match fs::remove_file(pending_path(directory, bundle_id)) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -357,11 +340,22 @@ fn remove_pending(directory: &Path, bundle_id: Uuid) -> AppResult<()> {
     }
 }
 
-fn pending_path(directory: &Path, bundle_id: Uuid) -> PathBuf {
-    directory.join(format!("{bundle_id}.bundle"))
+fn pending_path(directory: &Path, bundle_id: &str) -> PathBuf {
+    directory.join(format!("{}.bundle", safe_path_component(bundle_id)))
 }
 
-fn print_pending(pending: &HashMap<Uuid, Bundle>) {
+fn safe_path_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            character if character.is_control() => '_',
+            character => character,
+        })
+        .collect()
+}
+
+fn print_pending(pending: &HashMap<String, Bundle>) {
     if pending.is_empty() {
         println!("no pending bundles");
         return;
