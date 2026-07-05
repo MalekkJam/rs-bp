@@ -4,7 +4,30 @@ use super::bundle::{
 use crate::bundle::{Bundle, BundlePayload};
 use chrono::{DateTime, Utc};
 use protobuf::Message;
-use uuid::Uuid;
+use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProtobufConversionError {
+    InvalidId(&'static str),
+    InvalidTimestamp(&'static str),
+    MissingPayload,
+}
+
+impl fmt::Display for ProtobufConversionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProtobufConversionError::InvalidId(field) => {
+                write!(f, "invalid ID in protobuf field '{field}'")
+            }
+            ProtobufConversionError::InvalidTimestamp(field) => {
+                write!(f, "invalid timestamp in protobuf field '{field}'")
+            }
+            ProtobufConversionError::MissingPayload => write!(f, "protobuf bundle has no payload"),
+        }
+    }
+}
+
+impl std::error::Error for ProtobufConversionError {}
 
 impl From<&Bundle> for ProtobufBundle {
     fn from(b: &Bundle) -> Self {
@@ -14,7 +37,7 @@ impl From<&Bundle> for ProtobufBundle {
             }
             BundlePayload::Ack { original_bundle_id } => {
                 let mut ack = Ack::new();
-                ack.original_bundle_id = original_bundle_id.to_string();
+                ack.original_bundle_id = original_bundle_id.clone();
                 Some(protobuf_bundle::Payload::Ack(ack))
             }
             BundlePayload::RequestSummaryVector => Some(
@@ -22,8 +45,7 @@ impl From<&Bundle> for ProtobufBundle {
             ),
             BundlePayload::SummaryVector(bundle_ids) => {
                 let mut summary_vector = SummaryVector::new();
-                summary_vector.bundle_ids =
-                    bundle_ids.iter().map(Uuid::to_string).collect();
+                summary_vector.bundle_ids = bundle_ids.clone();
                 Some(protobuf_bundle::Payload::SummaryVector(summary_vector))
             }
         };
@@ -40,15 +62,19 @@ impl From<&Bundle> for ProtobufBundle {
     }
 }
 
-impl From<ProtobufBundle> for Bundle {
-    fn from(p: ProtobufBundle) -> Self {
+impl TryFrom<ProtobufBundle> for Bundle {
+    type Error = ProtobufConversionError;
+
+    fn try_from(p: ProtobufBundle) -> Result<Self, Self::Error> {
         let payload = match p.payload {
             Some(protobuf_bundle::Payload::Message(message)) => {
                 BundlePayload::Message(message)
             }
             Some(protobuf_bundle::Payload::Ack(ack)) => BundlePayload::Ack {
-                original_bundle_id: Uuid::parse_str(&ack.original_bundle_id)
-                    .unwrap_or_default(),
+                original_bundle_id: non_empty_string(
+                    ack.original_bundle_id,
+                    "ack.original_bundle_id",
+                )?,
             },
             Some(protobuf_bundle::Payload::RequestSummaryVector(_)) => {
                 BundlePayload::RequestSummaryVector
@@ -58,26 +84,35 @@ impl From<ProtobufBundle> for Bundle {
                     summary_vector
                         .bundle_ids
                         .into_iter()
-                        .map(|bundle_id| {
-                            Uuid::parse_str(&bundle_id).unwrap_or_default()
-                        })
-                        .collect(),
+                        .map(|bundle_id| non_empty_string(bundle_id, "summary_vector.bundle_ids"))
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
             }
-            None => BundlePayload::Message(String::new()),
+            None => return Err(ProtobufConversionError::MissingPayload),
         };
 
-        Bundle {
-            id: Uuid::parse_str(&p.id).unwrap_or_default(),
-            source: Uuid::parse_str(&p.source_id).unwrap_or_default(),
-            destination: Uuid::parse_str(&p.destination_id).unwrap_or_default(),
+        Ok(Bundle {
+            id: non_empty_string(p.id, "id")?,
+            source: non_empty_string(p.source_id, "source_id")?,
+            destination: non_empty_string(p.destination_id, "destination_id")?,
             created_at: DateTime::<Utc>::from_timestamp(p.created_at, 0)
-                .unwrap_or_default(),
+                .ok_or(ProtobufConversionError::InvalidTimestamp("created_at"))?,
             expires_at: DateTime::<Utc>::from_timestamp(p.expires_at, 0)
-                .unwrap_or_default(),
+                .ok_or(ProtobufConversionError::InvalidTimestamp("expires_at"))?,
             payload,
-        }
+        })
     }
+}
+
+fn non_empty_string(
+    value: String,
+    field: &'static str,
+) -> Result<String, ProtobufConversionError> {
+    if value.trim().is_empty() {
+        return Err(ProtobufConversionError::InvalidId(field));
+    }
+
+    Ok(value)
 }
 
 pub fn serialize(bundle: &ProtobufBundle) -> Option<Vec<u8>> {
