@@ -18,6 +18,7 @@ The runtime supports these interactive commands:
 | Command | Function |
 | --- | --- |
 | `send <text>` | Creates a message bundle, stores it as pending, and sends it to the configured next hop. |
+| `send-to <destination> <text>` | Uses the specified final endpoint while forwarding via the configured next hop. |
 | `pending` | Lists bundles still waiting for acknowledgement. |
 | `status` | Displays local node ID, next-hop node ID, next-hop address, and pending count. |
 | `help` | Prints available commands. |
@@ -34,7 +35,8 @@ them, verifies the received bundle, and exits.
 
 ## Technical documentation
 
-Main file: `src/main.rs`
+Main files: `src/main.rs` (entry point), `src/app/cli.rs` (configuration),
+`src/app/runtime.rs` (node loop), and `src/app/persistence.rs` (queue files).
 
 The async entry point is:
 
@@ -82,12 +84,17 @@ normal in-memory collections inside one async task.
 
 ### Sending a message
 
-When the user enters `send <text>`:
+When the user enters `send <text>` or `send-to <destination> <text>`:
 
-1. `BundleManager::create_bundle` creates a `BundlePayload::Message`.
-2. `save_pending` serializes the bundle to protobuf bytes and writes it to disk.
-3. The bundle is inserted into the in-memory `pending` map.
-4. `UdpConvergenceLayer::send_bundle` sends the bundle to the next-hop address.
+1. `BundleManager::create_bundle` creates a message with the selected final
+   destination. Local destinations are displayed immediately without forwarding.
+2. `forwarding_copy` prepares a copy with one outgoing hop added. The adapter
+   checks its encoded datagram size. Oversized messages are rejected.
+3. `save_pending` publishes a complete protobuf file without overwriting an
+   existing bundle; a failed save is reported and does not queue the message.
+4. The bundle is inserted into the in-memory `pending` map.
+5. `UdpConvergenceLayer::send_bundle` attempts delivery to the next-hop address.
+   Send failures are logged and the bundle remains queued for retry.
 
 Because UDP send does not prove delivery, the bundle stays pending until an ACK
 arrives.
@@ -106,15 +113,29 @@ peer that actually sent the datagram.
 For `BundlePayload::Message`, `handle_incoming`:
 
 1. Drops expired bundles.
-2. Prints the message if it has not already been seen during this process.
-3. Creates an ACK bundle referencing the original bundle ID.
-4. Sends the ACK back to the UDP peer address.
+2. For a nonlocal destination, checks the hop limit, saves the bundle and actual
+   previous UDP peer in one relay queue record, and forwards an incremented copy.
+   Only the hop count changes. Duplicate pending IDs preserve the original
+   reverse path and leave retransmission to the retry timer.
+3. For a local destination, prints the message once per process and creates a
+   custom application delivery ACK referencing the original bundle ID.
+4. Sends that ACK back to the UDP peer address, including for duplicates. ACK
+   send failures are logged; another copy can trigger another attempt.
 
 For `BundlePayload::Ack`, `handle_incoming`:
 
-1. Looks up the referenced original bundle ID in `pending`.
-2. Removes the bundle from memory if present.
-3. Removes the matching `.bundle` file from disk.
+1. Requires an unexpired ACK matching a retained original message.
+2. Looks up the referenced original bundle ID in `pending` and verifies that its
+   destination matches the ACK source and its source matches the ACK destination.
+3. Requires the actual UDP peer address to equal the configured next hop.
+4. Reads the original message's previous peer from its queue record. A relay
+   forwards the ACK to that peer without changing the ACK's source or destination.
+   A locally originated record requires the ACK destination to match this node.
+5. After a successful ACK relay attempt (or local receipt), removes the pending
+   file and then its memory state. Failed sends or file operations retain it.
+
+Unknown or duplicate ACKs are harmless. Deletion failures keep the pending entry
+for another attempt. These checks do not provide cryptographic authentication.
 
 Summary-vector payloads are recognized but not implemented by the runtime yet.
 
@@ -122,8 +143,9 @@ Summary-vector payloads are recognized but not implemented by the runtime yet.
 
 Every two seconds, `retry_pending` scans the pending map:
 
-- expired bundles are removed from memory and disk;
-- non-expired bundles are sent again to the configured next-hop address.
+- expired or hop-exhausted bundles are removed from disk, then memory;
+- other bundles are sent to the configured next hop using an incremented copy.
+  Stored counters are unchanged, so a retry does not consume another logical hop.
 
 This implements simple store-and-retry behavior for offline peers.
 
@@ -131,8 +153,10 @@ This implements simple store-and-retry behavior for offline peers.
 
 - One configured next hop per node.
 - No peer discovery.
-- No multi-hop routing in the runtime.
+- Multi-hop forwarding uses one default next hop; no route discovery or route table.
 - Duplicate suppression is in memory only and is lost on restart.
-- Persistence logic currently lives in `src/main.rs` rather than the planned storage abstraction.
+- Persistence lives in `src/app/persistence.rs` and runs in blocking tasks;
+  handlers await each queue operation before processing the next event.
 - UDP traffic is not authenticated or encrypted.
-
+- Relay receipts follow fixed reverse paths, and final-delivery deduplication is
+  process-local. See [multi-hop-design.md](multi-hop-design.md) for RFC boundaries.

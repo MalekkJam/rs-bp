@@ -10,12 +10,19 @@ message SummaryVector {
 
 message RequestSummaryVector {}
 
+// Experimental encoding of the hop-limit/count concept, not a BPv7 block.
+message HopCount {
+    uint32 limit = 1;
+    uint32 count = 2;
+}
+
 message ProtobufBundle {
     string id = 1;
     string source_id = 2;
     string destination_id = 3;
     int64 created_at = 4;
     int64 expires_at = 5;
+    HopCount hop_count = 10;
 
     oneof payload {
         string message = 6;
@@ -23,4 +30,10 @@ message ProtobufBundle {
         RequestSummaryVector request_summary_vector = 8;
         SummaryVector summary_vector = 9;
     }
+}
+
+// Local disk record only. Never sent by the UDP convergence layer.
+message PendingBundleRecord {
+    ProtobufBundle bundle = 1;
+    string previous_peer = 2;
 }

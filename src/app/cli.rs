@@ -38,7 +38,8 @@ pub(crate) fn print_prompt() -> AppResult<()> {
 }
 
 pub(crate) fn print_node_help() {
-    println!("commands: send <text>, pending, status, help, quit");
+    println!("commands: send <text>, send-to <destination> <text>, pending, status, help, quit");
+    println!("example: send-to ipn:1:7003 Hello C (via the configured next hop)");
 }
 
 fn print_usage() {

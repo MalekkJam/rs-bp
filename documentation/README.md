@@ -6,15 +6,18 @@ Each layer document is split into:
 - Functional documentation: what the layer does from the application's point of view.
 - Technical documentation: how the layer is implemented in the Rust codebase.
 
+See [multi-hop-design.md](multi-hop-design.md) for the forwarding contract,
+RFC 9171 references, delivery-receipt semantics, and compatibility boundaries.
+
 ## Layers
 
 | Layer | Documentation | Main source files |
 | --- | --- | --- |
-| Application runtime | [application-runtime.md](application-runtime.md) | `src/main.rs` |
+| Application runtime | [application-runtime.md](application-runtime.md) | `src/main.rs`, `src/app/cli.rs`, `src/app/runtime.rs` |
 | Bundle layer | [bundle-layer.md](bundle-layer.md) | `src/bundle/model.rs`, `src/bundle/bundle_manager.rs`, `src/bundle/routing.rs` |
 | Convergence layer adapter | [convergence-layer.md](convergence-layer.md) | `src/cla/cla_udp.rs`, `src/cla/protobuf.rs`, `src/cla/bundle.proto` |
 | Transport layer | [transport-layer.md](transport-layer.md) | `src/transport/udp.rs`, `src/transport/mod.rs` |
-| Persistence layer | [persistence-layer.md](persistence-layer.md) | `src/main.rs`, `src/bundle/storage.rs` |
+| Persistence layer | [persistence-layer.md](persistence-layer.md) | `src/app/persistence.rs` (active), `src/bundle/storage.rs` (inactive) |
 | Node model | [node-model.md](node-model.md) | `src/model.rs` |
 
 ## High-level flow
@@ -52,4 +55,3 @@ For the current MVP, the application runtime owns most orchestration:
 Some planned abstractions already exist under `src/bundle/storage.rs`,
 `src/bundle/bundle_layer.rs`, and `src/model.rs`, but they are not part of the
 exported `lib.rs` module tree used by the current runtime.
-

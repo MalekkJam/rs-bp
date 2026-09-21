@@ -1,18 +1,15 @@
 use crate::bundle::model::{Bundle, BundlePayload};
 use chrono::{Duration, Timelike, Utc};
-use std::sync::atomic::{AtomicU64, Ordering};
+use uuid::Uuid;
 
 const DEFAULT_TTL: Duration = Duration::weeks(3);
 
-pub struct BundleManager {
-    next_bundle_sequence: AtomicU64,
-}
+#[derive(Default)]
+pub struct BundleManager;
 
 impl BundleManager {
     pub fn new() -> Self {
-        BundleManager {
-            next_bundle_sequence: AtomicU64::new(1),
-        }
+        Self
     }
 
     pub fn create_bundle(
@@ -26,11 +23,12 @@ impl BundleManager {
             .expect("zero nanoseconds is always valid");
 
         Bundle {
-            id: self.next_bundle_id(),
+            id: Uuid::new_v4().to_string(),
             source: node_id.into(),
             destination: destination.into(),
             created_at,
             expires_at: created_at + DEFAULT_TTL,
+            hop_count: Some(Default::default()),
             payload,
         }
     }
@@ -42,11 +40,6 @@ impl BundleManager {
     pub fn bundle_at_destination(bundle: &Bundle, node_id: &str) -> bool {
         bundle.destination == node_id
     }
-
-    fn next_bundle_id(&self) -> String {
-        let sequence = self.next_bundle_sequence.fetch_add(1, Ordering::Relaxed);
-        format!("ipn:1:{sequence}")
-    }
 }
 
 #[cfg(test)]
@@ -55,7 +48,7 @@ mod tests {
     use crate::bundle::BundlePayload;
 
     #[test]
-    fn creates_auto_incrementing_ipn_bundle_ids() {
+    fn creates_distinct_ids_across_managers_and_restarts() {
         let manager = BundleManager::new();
         let node_id = "ipn:1:7001";
         let destination = "ipn:1:7002";
@@ -65,13 +58,14 @@ mod tests {
             destination,
             BundlePayload::Message("first".to_string()),
         );
-        let second = manager.create_bundle(
+        let second = BundleManager::new().create_bundle(
             node_id,
             destination,
             BundlePayload::Message("second".to_string()),
         );
 
-        assert_eq!(first.id, "ipn:1:1");
-        assert_eq!(second.id, "ipn:1:2");
+        assert_ne!(first.id, second.id);
+        assert!(uuid::Uuid::parse_str(&first.id).is_ok());
+        assert!(uuid::Uuid::parse_str(&second.id).is_ok());
     }
 }

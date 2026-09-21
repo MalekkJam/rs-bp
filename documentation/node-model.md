@@ -7,7 +7,7 @@ endpoint, peers, bundle layer, and convergence layer.
 
 This model is useful as architecture documentation for where the project is
 going, but it is not the structure currently used by the CLI runtime. The
-current executable builds its node state directly in `src/main.rs`.
+current executable builds its node state in `src/app/runtime.rs`.
 
 ## Technical documentation
 
@@ -54,4 +54,3 @@ The intended responsibilities are:
 - It references abstractions that are not currently wired into the runtime.
 - The active runtime uses string node IDs derived from UDP ports, not UUID node IDs.
 - `ConvergenceLayer` is referenced conceptually, but the active exported CLA type is `UdpConvergenceLayer`.
-
