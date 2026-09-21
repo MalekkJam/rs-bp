@@ -5,6 +5,9 @@ use crate::transport::UdpTransport;
 use std::fmt;
 use std::net::SocketAddr;
 
+// Conservative encoded payload limit shared by IPv4 and IPv6 operation.
+const MAX_DATAGRAM_BYTES: usize = 65_507;
+
 pub struct UdpConvergenceLayer {
     transport: UdpTransport,
 }
@@ -14,6 +17,7 @@ pub enum ClaError {
     Io(std::io::Error),
     Serialize,
     Deserialize,
+    TooLarge,
 }
 
 impl fmt::Display for ClaError {
@@ -22,11 +26,19 @@ impl fmt::Display for ClaError {
             ClaError::Io(error) => write!(f, "udp io error: {}", error),
             ClaError::Serialize => write!(f, "failed to serialize bundle"),
             ClaError::Deserialize => write!(f, "failed to deserialize bundle"),
+            ClaError::TooLarge => write!(f, "encoded bundle exceeds {MAX_DATAGRAM_BYTES} bytes"),
         }
     }
 }
 
-impl std::error::Error for ClaError {}
+impl std::error::Error for ClaError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for ClaError {
     fn from(error: std::io::Error) -> Self {
@@ -41,6 +53,15 @@ impl UdpConvergenceLayer {
 
     pub fn local_addr(&self) -> Result<SocketAddr, ClaError> {
         self.transport.local_addr().map_err(ClaError::Io)
+    }
+
+    /// Reject bundles too large for this adapter before adding them to a queue.
+    pub fn validate_bundle_size(&self, bundle: &Bundle) -> Result<(), ClaError> {
+        use ::protobuf::Message;
+        if ProtobufBundle::from(bundle).compute_size() > MAX_DATAGRAM_BYTES as u64 {
+            return Err(ClaError::TooLarge);
+        }
+        Ok(())
     }
 
     pub async fn send_bundle(&self, bundle: &Bundle, peer: SocketAddr) -> Result<(), ClaError> {
@@ -63,11 +84,15 @@ impl UdpConvergenceLayer {
     }
 
     fn serialize(&self, bundle: &Bundle) -> Result<Vec<u8>, ClaError> {
+        self.validate_bundle_size(bundle)?;
         let protobuf_bundle = ProtobufBundle::from(bundle);
         protobuf::serialize(&protobuf_bundle).ok_or(ClaError::Serialize)
     }
 
     fn deserialize(&self, bytes: &[u8]) -> Result<Bundle, ClaError> {
+        if bytes.len() > MAX_DATAGRAM_BYTES {
+            return Err(ClaError::Deserialize);
+        }
         let protobuf_bundle = protobuf::deserialize(bytes).ok_or(ClaError::Deserialize)?;
         Bundle::try_from(protobuf_bundle).map_err(|_| ClaError::Deserialize)
     }
@@ -91,6 +116,7 @@ mod tests {
             destination: "ipn:1:7002".to_string(),
             created_at,
             expires_at: created_at + ChronoDuration::minutes(5),
+            hop_count: None,
             payload,
         }
     }
@@ -150,6 +176,17 @@ mod tests {
         let error = cla.deserialize(b"not a protobuf bundle").unwrap_err();
 
         assert!(matches!(error, ClaError::Deserialize));
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_encoded_bundles() {
+        let cla = UdpConvergenceLayer::new(
+            UdpTransport::bind("127.0.0.1:0".parse().unwrap())
+                .await
+                .unwrap(),
+        );
+        let bundle = make_bundle(BundlePayload::Message("x".repeat(65_507)));
+        assert!(cla.serialize(&bundle).is_err());
     }
 
     #[tokio::test]

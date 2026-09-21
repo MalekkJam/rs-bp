@@ -53,6 +53,8 @@ Send flow:
 2. `protobuf::serialize` encodes the protobuf object into bytes.
 3. `transport.send_to(&bytes, peer).await` sends one UDP datagram.
 
+Encoded bundles over 65,507 bytes are rejected with `ClaError::TooLarge` before
+socket I/O. The runtime calls `validate_bundle_size` before saving new messages.
 If serialization fails, the method returns `ClaError::Serialize`.
 If UDP send fails, the `std::io::Error` is converted into `ClaError::Io`.
 
@@ -102,6 +104,7 @@ message ProtobufBundle {
     string destination_id = 3;
     int64 created_at = 4;
     int64 expires_at = 5;
+    HopCount hop_count = 10;
 
     oneof payload {
         string message = 6;
@@ -119,6 +122,10 @@ The generated Rust code is produced by `build.rs` and included by
 include!(concat!(env!("OUT_DIR"), "/proto/bundle.rs"));
 ```
 
+`HopCount` contains `uint32 limit` and `uint32 count`. Its absence preserves
+legacy decoding. The schema also defines `PendingBundleRecord` for disk storage;
+that wrapper is never serialized by `UdpConvergenceLayer`.
+
 ### Conversion rules
 
 `src/cla/protobuf.rs` implements:
@@ -134,17 +141,28 @@ During deserialization, the conversion rejects:
 - empty ACK original bundle IDs;
 - empty summary-vector bundle IDs;
 - invalid timestamps;
+- expiry timestamps at or before creation;
 - missing payloads.
+- present hop limits outside 1..=255 or counts greater than the limit.
+
+Wire IDs remain opaque nonblank strings to preserve legacy compatibility.
+Destination ownership and ACK peer checks belong to the application runtime.
+Incoming datagrams above the adapter's encoded-size limit are rejected.
+The bundle layer prepares outgoing hop counts; serialization never changes
+source, destination, lifetime, or routing state.
 
 ### Error model
 
-`ClaError` has three variants:
+`ClaError` has four variants:
 
 | Error | Meaning |
 | --- | --- |
 | `Io(std::io::Error)` | UDP bind/send/receive or address lookup failed. |
 | `Serialize` | Domain bundle could not be encoded as protobuf bytes. |
 | `Deserialize` | Received bytes could not be parsed or converted into a valid domain bundle. |
+| `TooLarge` | The encoded outbound bundle exceeds the adapter's 65,507-byte limit. |
+
+`ClaError::Io` exposes its underlying I/O error through `Error::source`.
 
 ## Current limitations
 
@@ -152,4 +170,3 @@ During deserialization, the conversion rejects:
 - A bundle larger than one UDP datagram is not fragmented or reassembled.
 - Protobuf parse failures are logged to stderr by the helper and then returned as `ClaError::Deserialize`.
 - The layer does not authenticate, encrypt, or validate peer identity.
-

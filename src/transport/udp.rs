@@ -58,13 +58,11 @@ mod tests {
         assert_eq!(sent, payload.len());
 
         let mut buffer = [0_u8; 64];
-        let (size, peer_addr) = tokio::time::timeout(
-            Duration::from_secs(1),
-            receiver.recv_from(&mut buffer),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let (size, peer_addr) =
+            tokio::time::timeout(Duration::from_secs(1), receiver.recv_from(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap();
 
         assert_eq!(&buffer[..size], payload);
         assert_eq!(peer_addr, sender_addr);
